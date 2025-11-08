@@ -124,6 +124,7 @@
             const [allStaff, setAllStaff] = useState([]);
             const [allPatients, setAllPatients] = useState([]);
             const [loading, setLoading] = useState(false);
+            const [selectedArea, setSelectedArea] = useState('all'); // エリアフィルター用
 
             const ADMIN_PASSWORD = 'saigai';
 
@@ -512,7 +513,6 @@
                                                 type="text"
                                                 value={staffData.location}
                                                 onChange={(e) => setStaffData({...staffData, location: e.target.value})}
-                                                onInput={(e) => setStaffData({...staffData, location: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="自宅、避難所、職場など"
                                             />
@@ -543,7 +543,6 @@
                                                 type="text"
                                                 value={staffData.reportTime}
                                                 onChange={(e) => setStaffData({...staffData, reportTime: e.target.value})}
-                                                onInput={(e) => setStaffData({...staffData, reportTime: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="例: 14:00頃"
                                             />
@@ -556,7 +555,6 @@
                                             <textarea
                                                 value={staffData.comment}
                                                 onChange={(e) => setStaffData({...staffData, comment: e.target.value})}
-                                                onInput={(e) => setStaffData({...staffData, comment: e.target.value})}
                                                 rows="3"
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="家族の状況、交通状況など"
@@ -782,7 +780,6 @@
                                                 type="text"
                                                 value={patientData.name}
                                                 onChange={(e) => setPatientData({...patientData, name: e.target.value})}
-                                                onInput={(e) => setPatientData({...patientData, name: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="山田 太郎"
                                             />
@@ -796,7 +793,6 @@
                                                 type="text"
                                                 value={patientData.patientId}
                                                 onChange={(e) => setPatientData({...patientData, patientId: e.target.value})}
-                                                onInput={(e) => setPatientData({...patientData, patientId: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="例: P20231101-001"
                                             />
@@ -858,7 +854,6 @@
                                                 type="text"
                                                 value={patientData.injury}
                                                 onChange={(e) => setPatientData({...patientData, injury: e.target.value})}
-                                                onInput={(e) => setPatientData({...patientData, injury: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="例: 頭部外傷、骨折など"
                                             />
@@ -871,7 +866,6 @@
                                             <textarea
                                                 value={patientData.treatment}
                                                 onChange={(e) => setPatientData({...patientData, treatment: e.target.value})}
-                                                onInput={(e) => setPatientData({...patientData, treatment: e.target.value})}
                                                 rows="3"
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="実施した処置、投薬内容など"
@@ -905,6 +899,9 @@
 
                 if (view === 'admin') {
                     const stats = getAreaStats();
+                    const filteredPatients = selectedArea === 'all' 
+                        ? allPatients 
+                        : allPatients.filter(p => p.area === selectedArea);
 
                     return (
                         <div className="min-h-screen bg-gradient-to-br from-rose-50 to-red-100 p-4">
@@ -937,27 +934,76 @@
                                     ) : (
                                         <>
                                             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                                                <div className="bg-blue-100 border-2 border-blue-300 rounded-lg p-4 text-center">
+                                                <button
+                                                    onClick={() => setSelectedArea('all')}
+                                                    className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
+                                                        selectedArea === 'all' 
+                                                        ? 'bg-blue-200 border-blue-400' 
+                                                        : 'bg-blue-100 border-blue-300 hover:bg-blue-200'
+                                                    }`}
+                                                >
                                                     <div className="text-2xl font-bold text-blue-800">{stats['合計']}</div>
                                                     <div className="text-sm text-blue-600">合計</div>
-                                                </div>
-                                                <div className="bg-red-100 border-2 border-red-400 rounded-lg p-4 text-center">
+                                                </button>
+                                                <button
+                                                    onClick={() => setSelectedArea('赤')}
+                                                    className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
+                                                        selectedArea === '赤' 
+                                                        ? 'bg-red-200 border-red-500' 
+                                                        : 'bg-red-100 border-red-400 hover:bg-red-200'
+                                                    }`}
+                                                >
                                                     <div className="text-2xl font-bold text-red-800">{stats['赤']}</div>
                                                     <div className="text-sm text-red-600">赤</div>
-                                                </div>
-                                                <div className="bg-yellow-100 border-2 border-yellow-400 rounded-lg p-4 text-center">
+                                                </button>
+                                                <button
+                                                    onClick={() => setSelectedArea('黄')}
+                                                    className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
+                                                        selectedArea === '黄' 
+                                                        ? 'bg-yellow-200 border-yellow-500' 
+                                                        : 'bg-yellow-100 border-yellow-400 hover:bg-yellow-200'
+                                                    }`}
+                                                >
                                                     <div className="text-2xl font-bold text-yellow-800">{stats['黄']}</div>
                                                     <div className="text-sm text-yellow-600">黄</div>
-                                                </div>
-                                                <div className="bg-green-100 border-2 border-green-400 rounded-lg p-4 text-center">
+                                                </button>
+                                                <button
+                                                    onClick={() => setSelectedArea('緑')}
+                                                    className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
+                                                        selectedArea === '緑' 
+                                                        ? 'bg-green-200 border-green-500' 
+                                                        : 'bg-green-100 border-green-400 hover:bg-green-200'
+                                                    }`}
+                                                >
                                                     <div className="text-2xl font-bold text-green-800">{stats['緑']}</div>
                                                     <div className="text-sm text-green-600">緑</div>
-                                                </div>
-                                                <div className="bg-gray-900 border-2 border-gray-900 rounded-lg p-4 text-center">
+                                                </button>
+                                                <button
+                                                    onClick={() => setSelectedArea('黒')}
+                                                    className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
+                                                        selectedArea === '黒' 
+                                                        ? 'bg-gray-700 border-gray-900' 
+                                                        : 'bg-gray-900 border-gray-900 hover:bg-gray-700'
+                                                    }`}
+                                                >
                                                     <div className="text-2xl font-bold text-white">{stats['黒']}</div>
                                                     <div className="text-sm text-gray-300">黒</div>
-                                                </div>
+                                                </button>
                                             </div>
+
+                                            {selectedArea !== 'all' && (
+                                                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                                    <p className="text-sm text-blue-800">
+                                                        <strong>フィルター:</strong> エリア「{selectedArea}」のみ表示中 
+                                                        <button 
+                                                            onClick={() => setSelectedArea('all')}
+                                                            className="ml-2 text-blue-600 hover:text-blue-800 underline"
+                                                        >
+                                                            全て表示
+                                                        </button>
+                                                    </p>
+                                                </div>
+                                            )}
 
                                             <div className="overflow-x-auto">
                                                 <table className="w-full">
@@ -975,14 +1021,16 @@
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-200">
-                                                        {allPatients.length === 0 ? (
+                                                        {filteredPatients.length === 0 ? (
                                                             <tr>
                                                                 <td colSpan="9" className="px-4 py-8 text-center text-gray-500">
-                                                                    登録されているデータがありません
+                                                                    {selectedArea === 'all' 
+                                                                        ? '登録されているデータがありません' 
+                                                                        : `エリア「${selectedArea}」のデータがありません`}
                                                                 </td>
                                                             </tr>
                                                         ) : (
-                                                            allPatients.map((patient) => (
+                                                            filteredPatients.map((patient) => (
                                                                 <tr key={patient.triageNumber} className="hover:bg-gray-50">
                                                                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{patient.triageNumber}</td>
                                                                     <td className="px-4 py-3 text-sm text-gray-900">{patient.name}</td>
