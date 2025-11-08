@@ -465,7 +465,6 @@
                                                 type="text"
                                                 value={staffData.name}
                                                 onChange={(e) => setStaffData({...staffData, name: e.target.value})}
-                                                onInput={(e) => setStaffData({...staffData, name: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="山田 太郎"
                                             />
@@ -783,6 +782,7 @@
                                                 type="text"
                                                 value={patientData.name}
                                                 onChange={(e) => setPatientData({...patientData, name: e.target.value})}
+                                                onInput={(e) => setPatientData({...patientData, name: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="山田 太郎"
                                             />
@@ -798,7 +798,7 @@
                                                 onChange={(e) => setPatientData({...patientData, patientId: e.target.value})}
                                                 onInput={(e) => setPatientData({...patientData, patientId: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
-                                                placeholder="例: 9-123-456-7の8桁"
+                                                placeholder="例: P20231101-001"
                                             />
                                         </div>
 
