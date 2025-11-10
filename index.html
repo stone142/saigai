@@ -124,7 +124,8 @@
             const [allStaff, setAllStaff] = useState([]);
             const [allPatients, setAllPatients] = useState([]);
             const [loading, setLoading] = useState(false);
-            const [selectedArea, setSelectedArea] = useState('all'); // エリアフィルター用
+            const [selectedArea, setSelectedArea] = useState('all'); // フィルタ用
+            const [isComposing, setIsComposing] = useState(false); // IME入力中フラグ
 
             const ADMIN_PASSWORD = 'saigai';
 
@@ -218,9 +219,11 @@
                     return;
                 }
 
-                setPatientId(normalizedId);
+                // 3桁にゼロ埋め
+                const paddedId = normalizedId.padStart(3, '0');
+                setPatientId(paddedId);
 
-                const stored = localStorage.getItem(`patient:${normalizedId}`);
+                const stored = localStorage.getItem(`patient:${paddedId}`);
                 if (stored) {
                     setPatientData(JSON.parse(stored));
                 } else {
@@ -511,8 +514,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={staffData.location}
-                                                onChange={(e) => setStaffData({...staffData, location: e.target.value})}
+                                                defaultValue={staffData.location}
+                                                onBlur={(e) => setStaffData({...staffData, location: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="自宅、避難所、職場など"
                                             />
@@ -541,8 +544,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={staffData.reportTime}
-                                                onChange={(e) => setStaffData({...staffData, reportTime: e.target.value})}
+                                                defaultValue={staffData.reportTime}
+                                                onBlur={(e) => setStaffData({...staffData, reportTime: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="例: 14:00頃"
                                             />
@@ -553,8 +556,8 @@
                                                 備考・連絡事項
                                             </label>
                                             <textarea
-                                                value={staffData.comment}
-                                                onChange={(e) => setStaffData({...staffData, comment: e.target.value})}
+                                                defaultValue={staffData.comment}
+                                                onBlur={(e) => setStaffData({...staffData, comment: e.target.value})}
                                                 rows="3"
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="家族の状況、交通状況など"
@@ -778,10 +781,11 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={patientData.name}
-                                                onChange={(e) => setPatientData({...patientData, name: e.target.value})}
+                                                defaultValue={patientData.name}
+                                                onBlur={(e) => setPatientData({...patientData, name: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="山田 太郎"
+                                                autoComplete="off"
                                             />
                                         </div>
 
@@ -791,8 +795,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={patientData.patientId}
-                                                onChange={(e) => setPatientData({...patientData, patientId: e.target.value})}
+                                                defaultValue={patientData.patientId}
+                                                onBlur={(e) => setPatientData({...patientData, patientId: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="例: P20231101-001"
                                             />
@@ -852,8 +856,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={patientData.injury}
-                                                onChange={(e) => setPatientData({...patientData, injury: e.target.value})}
+                                                defaultValue={patientData.injury}
+                                                onBlur={(e) => setPatientData({...patientData, injury: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="例: 頭部外傷、骨折など"
                                             />
@@ -864,8 +868,8 @@
                                                 処置状況
                                             </label>
                                             <textarea
-                                                value={patientData.treatment}
-                                                onChange={(e) => setPatientData({...patientData, treatment: e.target.value})}
+                                                defaultValue={patientData.treatment}
+                                                onBlur={(e) => setPatientData({...patientData, treatment: e.target.value})}
                                                 rows="3"
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="実施した処置、投薬内容など"
@@ -938,7 +942,7 @@
                                                     onClick={() => setSelectedArea('all')}
                                                     className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
                                                         selectedArea === 'all' 
-                                                        ? 'bg-blue-200 border-blue-400' 
+                                                        ? 'bg-blue-200 border-blue-400 ring-2 ring-blue-500' 
                                                         : 'bg-blue-100 border-blue-300 hover:bg-blue-200'
                                                     }`}
                                                 >
@@ -949,7 +953,7 @@
                                                     onClick={() => setSelectedArea('赤')}
                                                     className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
                                                         selectedArea === '赤' 
-                                                        ? 'bg-red-200 border-red-500' 
+                                                        ? 'bg-red-200 border-red-500 ring-2 ring-red-600' 
                                                         : 'bg-red-100 border-red-400 hover:bg-red-200'
                                                     }`}
                                                 >
@@ -960,7 +964,7 @@
                                                     onClick={() => setSelectedArea('黄')}
                                                     className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
                                                         selectedArea === '黄' 
-                                                        ? 'bg-yellow-200 border-yellow-500' 
+                                                        ? 'bg-yellow-200 border-yellow-500 ring-2 ring-yellow-600' 
                                                         : 'bg-yellow-100 border-yellow-400 hover:bg-yellow-200'
                                                     }`}
                                                 >
@@ -971,7 +975,7 @@
                                                     onClick={() => setSelectedArea('緑')}
                                                     className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
                                                         selectedArea === '緑' 
-                                                        ? 'bg-green-200 border-green-500' 
+                                                        ? 'bg-green-200 border-green-500 ring-2 ring-green-600' 
                                                         : 'bg-green-100 border-green-400 hover:bg-green-200'
                                                     }`}
                                                 >
@@ -982,7 +986,7 @@
                                                     onClick={() => setSelectedArea('黒')}
                                                     className={`border-2 rounded-lg p-4 text-center transition duration-200 ${
                                                         selectedArea === '黒' 
-                                                        ? 'bg-gray-700 border-gray-900' 
+                                                        ? 'bg-gray-700 border-gray-900 ring-2 ring-black' 
                                                         : 'bg-gray-900 border-gray-900 hover:bg-gray-700'
                                                     }`}
                                                 >
@@ -992,16 +996,21 @@
                                             </div>
 
                                             {selectedArea !== 'all' && (
-                                                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                                    <p className="text-sm text-blue-800">
-                                                        <strong>フィルター:</strong> エリア「{selectedArea}」のみ表示中 
-                                                        <button 
-                                                            onClick={() => setSelectedArea('all')}
-                                                            className="ml-2 text-blue-600 hover:text-blue-800 underline"
-                                                        >
-                                                            全て表示
-                                                        </button>
-                                                    </p>
+                                                <div className="mb-4 p-3 bg-gray-100 rounded-lg">
+                                                    <span className="text-sm font-medium text-gray-700">
+                                                        表示中: <span className={`font-bold ${
+                                                            selectedArea === '赤' ? 'text-red-600' :
+                                                            selectedArea === '黄' ? 'text-yellow-600' :
+                                                            selectedArea === '緑' ? 'text-green-600' :
+                                                            'text-gray-900'
+                                                        }`}>{selectedArea}エリア</span> ({filteredPatients.length}件)
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setSelectedArea('all')}
+                                                        className="ml-4 text-sm text-blue-600 hover:text-blue-800 underline"
+                                                    >
+                                                        全て表示
+                                                    </button>
                                                 </div>
                                             )}
 
@@ -1024,9 +1033,7 @@
                                                         {filteredPatients.length === 0 ? (
                                                             <tr>
                                                                 <td colSpan="9" className="px-4 py-8 text-center text-gray-500">
-                                                                    {selectedArea === 'all' 
-                                                                        ? '登録されているデータがありません' 
-                                                                        : `エリア「${selectedArea}」のデータがありません`}
+                                                                    {selectedArea === 'all' ? '登録されているデータがありません' : `${selectedArea}エリアのデータがありません`}
                                                                 </td>
                                                             </tr>
                                                         ) : (
