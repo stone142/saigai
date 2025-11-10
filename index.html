@@ -276,6 +276,17 @@
                 alert('登録しました');
                 setView('select');
                 setPatientId('');
+                setPatientData({
+                    triageNumber: '',
+                    name: '',
+                    patientId: '',
+                    gender: '',
+                    age: '',
+                    area: '',
+                    injury: '',
+                    treatment: '',
+                    timestamp: ''
+                });
             };
 
             const handleAdminLogin = () => {
@@ -514,8 +525,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                defaultValue={staffData.location}
-                                                onBlur={(e) => setStaffData({...staffData, location: e.target.value})}
+                                                value={staffData.location}
+                                                onChange={(e) => setStaffData({...staffData, location: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="自宅、避難所、職場など"
                                             />
@@ -544,8 +555,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                defaultValue={staffData.reportTime}
-                                                onBlur={(e) => setStaffData({...staffData, reportTime: e.target.value})}
+                                                value={staffData.reportTime}
+                                                onChange={(e) => setStaffData({...staffData, reportTime: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="例: 14:00頃"
                                             />
@@ -556,8 +567,8 @@
                                                 備考・連絡事項
                                             </label>
                                             <textarea
-                                                defaultValue={staffData.comment}
-                                                onBlur={(e) => setStaffData({...staffData, comment: e.target.value})}
+                                                value={staffData.comment}
+                                                onChange={(e) => setStaffData({...staffData, comment: e.target.value})}
                                                 rows="3"
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                                 placeholder="家族の状況、交通状況など"
@@ -781,11 +792,10 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                defaultValue={patientData.name}
-                                                onBlur={(e) => setPatientData({...patientData, name: e.target.value})}
+                                                value={patientData.name}
+                                                onChange={(e) => setPatientData({...patientData, name: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="山田 太郎"
-                                                autoComplete="off"
                                             />
                                         </div>
 
@@ -795,8 +805,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                defaultValue={patientData.patientId}
-                                                onBlur={(e) => setPatientData({...patientData, patientId: e.target.value})}
+                                                value={patientData.patientId}
+                                                onChange={(e) => setPatientData({...patientData, patientId: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="例: P20231101-001"
                                             />
@@ -856,8 +866,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                defaultValue={patientData.injury}
-                                                onBlur={(e) => setPatientData({...patientData, injury: e.target.value})}
+                                                value={patientData.injury}
+                                                onChange={(e) => setPatientData({...patientData, injury: e.target.value})}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="例: 頭部外傷、骨折など"
                                             />
@@ -868,8 +878,8 @@
                                                 処置状況
                                             </label>
                                             <textarea
-                                                defaultValue={patientData.treatment}
-                                                onBlur={(e) => setPatientData({...patientData, treatment: e.target.value})}
+                                                value={patientData.treatment}
+                                                onChange={(e) => setPatientData({...patientData, treatment: e.target.value})}
                                                 rows="3"
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                                                 placeholder="実施した処置、投薬内容など"
