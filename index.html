@@ -304,7 +304,9 @@
             };
 
             const saveStaffData = () => {
-                if (!staffData.name || !staffData.department || !staffData.status) {
+                const nameValue = staffNameRef.current ? staffNameRef.current.value : staffData.name;
+                
+                if (!nameValue || !staffData.department || !staffData.status) {
                     alert('氏名、所属部署、安否状況は必須です');
                     return;
                 }
@@ -312,6 +314,7 @@
                 const now = new Date().toLocaleString('ja-JP');
                 const dataToSave = {
                     ...staffData,
+                    name: nameValue,
                     id: staffId,
                     timestamp: now,
                     createdAt: staffData.createdAt || now
@@ -324,7 +327,9 @@
             };
 
             const savePatientData = () => {
-                if (!patientData.name || !patientData.area) {
+                const nameValue = patientNameRef.current ? patientNameRef.current.value : patientData.name;
+                
+                if (!nameValue || !patientData.area) {
                     alert('氏名とエリアは必須です');
                     return;
                 }
@@ -332,6 +337,7 @@
                 const now = new Date().toLocaleString('ja-JP');
                 const dataToSave = {
                     ...patientData,
+                    name: nameValue,
                     triageNumber: patientId,
                     timestamp: now,
                     createdAt: patientData.createdAt || now
@@ -544,8 +550,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={staffData.name}
-                                                onChange={(e) => setStaffData({...staffData, name: e.target.value})}
+                                                ref={staffNameRef}
+                                                defaultValue={staffData.name}
                                                 className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 ${!staffData.name ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
                                                 placeholder="山田 太郎"
                                             />
@@ -906,8 +912,8 @@
                                             </label>
                                             <input
                                                 type="text"
-                                                value={patientData.name}
-                                                onChange={(e) => setPatientData({...patientData, name: e.target.value})}
+                                                ref={patientNameRef}
+                                                defaultValue={patientData.name}
                                                 className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 ${!patientData.name ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
                                                 placeholder="山田 太郎"
                                             />
