@@ -203,6 +203,372 @@
                                 </div>
 
                                 <div class="border-t pt-4">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">傷病者情報入力</label>
+                                    <input type="text" id="patientIdInput" placeholder="トリアージ番号（半角数字 例: 001）" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 mb-3" onkeypress="if(event.key==='Enter') patientInput()">
+                                    <button onclick="patientInput()" class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">傷病者情報を入力する</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 傷病者入力画面
+        function renderPatientInput() {
+            const stored = localStorage.getItem(`patient:${patientId}`);
+            const data = stored ? JSON.parse(stored) : { name: '', patientId: '', gender: '', age: '', area: '', injury: '', treatment: '' };
+            
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-rose-50 to-red-100 p-4">
+                    <div class="max-w-2xl mx-auto pt-4">
+                        <div class="bg-white rounded-lg shadow-xl p-6">
+                            <div class="flex justify-between items-center mb-6">
+                                <h2 class="text-xl font-bold text-gray-800">傷病者情報入力</h2>
+                                <span class="text-sm text-gray-600">トリアージ番号: ${patientId}</span>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">氏名 <span class="text-red-600">*</span></label>
+                                    <input type="text" id="patientName" value="${data.name}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" placeholder="山田 太郎">
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">患者ID</label>
+                                    <input type="text" id="patientIdField" value="${data.patientId}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" placeholder="例: P20231101-001">
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">性別</label>
+                                        <select id="patientGender" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500">
+                                            <option value="">選択</option>
+                                            <option value="男性" ${data.gender === '男性' ? 'selected' : ''}>男性</option>
+                                            <option value="女性" ${data.gender === '女性' ? 'selected' : ''}>女性</option>
+                                            <option value="不明" ${data.gender === '不明' ? 'selected' : ''}>不明</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">年齢</label>
+                                        <input type="text" id="patientAge" value="${data.age}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" placeholder="例: 45">
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">エリア（トリアージ区分） <span class="text-red-600">*</span></label>
+                                    <select id="patientArea" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500">
+                                        <option value="">選択してください</option>
+                                        <option value="赤" ${data.area === '赤' ? 'selected' : ''}>赤（最優先治療）</option>
+                                        <option value="黄" ${data.area === '黄' ? 'selected' : ''}>黄（待機的治療）</option>
+                                        <option value="緑" ${data.area === '緑' ? 'selected' : ''}>緑（軽処置）</option>
+                                        <option value="黒" ${data.area === '黒' ? 'selected' : ''}>黒（死亡・救命不可能）</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">傷病名</label>
+                                    <input type="text" id="patientInjury" value="${data.injury}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" placeholder="例: 頭部外傷、骨折など">
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">処置状況</label>
+                                    <textarea id="patientTreatment" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" placeholder="実施した処置、投薬内容など">${data.treatment}</textarea>
+                                </div>
+
+                                <div class="flex gap-3 pt-4">
+                                    <button onclick="cancelPatientInput()" class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-3 px-6 rounded-lg transition duration-200">キャンセル</button>
+                                    <button onclick="savePatient()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">登録する</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 傷病者管理画面
+        function renderPatientAdmin() {
+            const allPatients = getAllPatients();
+            const stats = getAreaStats(allPatients);
+            
+            let filtered = allPatients.filter(p => {
+                if (selectedArea !== 'all' && p.area !== selectedArea) return false;
+                if (!searchText) return true;
+                return p.name.includes(searchText) || (p.patientId && p.patientId.includes(searchText)) || (p.triageNumber && p.triageNumber.includes(searchText));
+            });
+
+            if (sortBy === 'time') {
+                filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            } else if (sortBy === 'name') {
+                filtered.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+            }
+
+            const rows = filtered.length === 0 ? `
+                <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">${searchText ? '検索結果がありません' : selectedArea === 'all' ? '登録されているデータがありません' : `${selectedArea}エリアのデータがありません`}</td></tr>
+            ` : filtered.map(p => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-3 text-sm font-medium text-gray-900">${p.triageNumber}</td>
+                    <td class="px-4 py-3 text-sm text-gray-900">${p.name}</td>
+                    <td class="px-4 py-3 text-sm text-gray-700">${p.patientId || '-'}</td>
+                    <td class="px-4 py-3 text-sm text-gray-700">${p.gender || '-'}</td>
+                    <td class="px-4 py-3 text-sm text-gray-700">${p.age || '-'}</td>
+                    <td class="px-4 py-3"><span class="px-3 py-1 rounded-full text-xs font-semibold border ${p.area === '赤' ? 'bg-red-100 text-red-800 border-red-400' : p.area === '黄' ? 'bg-yellow-100 text-yellow-800 border-yellow-400' : p.area === '緑' ? 'bg-green-100 text-green-800 border-green-400' : 'bg-gray-900 text-white border-gray-900'}">${p.area}</span></td>
+                    <td class="px-4 py-3 text-sm text-gray-700">${p.injury || '-'}</td>
+                    <td class="px-4 py-3 text-sm text-gray-700 max-w-xs truncate">${p.treatment || '-'}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600"><div>${p.timestamp}</div><div class="text-xs text-gray-500">${getRelativeTime(p.timestamp)}</div></td>
+                </tr>
+            `).join('');
+
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-rose-50 to-red-100 p-4">
+                    <div class="max-w-6xl mx-auto pt-4">
+                        <div class="bg-white rounded-lg shadow-xl p-6">
+                            <div class="flex justify-between items-center mb-6">
+                                <h2 class="text-2xl font-bold text-gray-800">傷病者リスト - 本部画面</h2>
+                                <div class="flex gap-2">
+                                    <button onclick="exportToCSV(getAllPatients(), '傷病者データ.csv', 'patient')" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200">CSV出力</button>
+                                    <button onclick="render()" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200">更新</button>
+                                    <button onclick="backToPatientSelect()" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200">戻る</button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                                <button onclick="selectedArea='all';render()" class="border-2 rounded-lg p-4 text-center transition duration-200 ${selectedArea === 'all' ? 'bg-blue-200 border-blue-400 ring-2 ring-blue-500' : 'bg-blue-100 border-blue-300 hover:bg-blue-200'}">
+                                    <div class="text-2xl font-bold text-blue-800">${stats['合計']}</div>
+                                    <div class="text-sm text-blue-600">合計</div>
+                                </button>
+                                <button onclick="selectedArea='赤';render()" class="border-2 rounded-lg p-4 text-center transition duration-200 ${selectedArea === '赤' ? 'bg-red-200 border-red-500 ring-2 ring-red-600' : 'bg-red-100 border-red-400 hover:bg-red-200'}">
+                                    <div class="text-2xl font-bold text-red-800">${stats['赤']}</div>
+                                    <div class="text-sm text-red-600">赤</div>
+                                </button>
+                                <button onclick="selectedArea='黄';render()" class="border-2 rounded-lg p-4 text-center transition duration-200 ${selectedArea === '黄' ? 'bg-yellow-200 border-yellow-500 ring-2 ring-yellow-600' : 'bg-yellow-100 border-yellow-400 hover:bg-yellow-200'}">
+                                    <div class="text-2xl font-bold text-yellow-800">${stats['黄']}</div>
+                                    <div class="text-sm text-yellow-600">黄</div>
+                                </button>
+                                <button onclick="selectedArea='緑';render()" class="border-2 rounded-lg p-4 text-center transition duration-200 ${selectedArea === '緑' ? 'bg-green-200 border-green-500 ring-2 ring-green-600' : 'bg-green-100 border-green-400 hover:bg-green-200'}">
+                                    <div class="text-2xl font-bold text-green-800">${stats['緑']}</div>
+                                    <div class="text-sm text-green-600">緑</div>
+                                </button>
+                                <button onclick="selectedArea='黒';render()" class="border-2 rounded-lg p-4 text-center transition duration-200 ${selectedArea === '黒' ? 'bg-gray-700 border-gray-900 ring-2 ring-black' : 'bg-gray-900 border-gray-900 hover:bg-gray-700'}">
+                                    <div class="text-2xl font-bold text-white">${stats['黒']}</div>
+                                    <div class="text-sm text-gray-300">黒</div>
+                                </button>
+                            </div>
+
+                            <div class="mb-4 flex gap-3">
+                                <input type="text" id="searchInputPatient" value="${searchText}" oninput="searchText=this.value;render()" placeholder="氏名・患者ID・トリアージ番号で検索..." class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500">
+                                <select id="sortSelectPatient" onchange="sortBy=this.value;render()" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500">
+                                    <option value="time" ${sortBy === 'time' ? 'selected' : ''}>更新時刻順</option>
+                                    <option value="name" ${sortBy === 'name' ? 'selected' : ''}>氏名順</option>
+                                </select>
+                            </div>
+
+                            ${selectedArea !== 'all' ? `
+                                <div class="mb-4 p-3 bg-gray-100 rounded-lg">
+                                    <span class="text-sm font-medium text-gray-700">
+                                        表示中: <span class="font-bold ${selectedArea === '赤' ? 'text-red-600' : selectedArea === '黄' ? 'text-yellow-600' : selectedArea === '緑' ? 'text-green-600' : 'text-gray-900'}">${selectedArea}エリア</span> (${filtered.length}件)
+                                    </span>
+                                    <button onclick="selectedArea='all';render()" class="ml-4 text-sm text-blue-600 hover:text-blue-800 underline">全て表示</button>
+                                </div>
+                            ` : ''}
+
+                            <div class="mb-2 text-sm text-gray-600">表示: ${filtered.length}件 / 全${allPatients.length}件</div>
+
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead class="bg-gray-100 border-b-2 border-gray-300">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">トリアージ番号</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">氏名</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">患者ID</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">性別</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">年齢</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">エリア</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">傷病名</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">処置状況</th>
+                                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">更新時刻</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">${rows}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // イベントハンドラー
+        function goToStaffMode() { currentMode = 'staff'; currentView = 'select'; render(); }
+        function goToPatientMode() { currentMode = 'patient'; currentView = 'select'; render(); }
+        function backToMain() { currentMode = 'main'; currentView = 'select'; staffId = ''; patientId = ''; searchText = ''; selectedArea = 'all'; render(); }
+        function backToStaffSelect() { currentView = 'select'; searchText = ''; render(); }
+        function backToPatientSelect() { currentView = 'select'; searchText = ''; selectedArea = 'all'; render(); }
+
+        function staffAdminLogin() {
+            const pwd = document.getElementById('adminPasswordStaff').value;
+            if (pwd === ADMIN_PASSWORD) {
+                currentView = 'admin';
+                render();
+            } else {
+                alert('パスワードが正しくありません');
+            }
+        }
+
+        function patientAdminLogin() {
+            const pwd = document.getElementById('adminPasswordPatient').value;
+            if (pwd === ADMIN_PASSWORD) {
+                currentView = 'admin';
+                render();
+            } else {
+                alert('パスワードが正しくありません');
+            }
+        }
+
+        function staffInput() {
+            const input = document.getElementById('staffIdInput').value.trim();
+            if (!input) {
+                alert('職員IDを入力してください');
+                return;
+            }
+            const normalized = toHalfWidth(input);
+            if (!/^\d+$/.test(normalized)) {
+                alert('職員IDは半角数字のみで入力してください');
+                return;
+            }
+            staffId = normalized;
+            const stored = localStorage.getItem(`staff:${staffId}`);
+            if (stored) {
+                const existing = JSON.parse(stored);
+                if (!confirm(`職員ID ${staffId} は既に登録されています。\n氏名: ${existing.name}\n上書きして編集しますか？`)) {
+                    staffId = '';
+                    return;
+                }
+            }
+            currentView = 'input';
+            render();
+        }
+
+        function patientInput() {
+            const input = document.getElementById('patientIdInput').value.trim();
+            if (!input) {
+                alert('トリアージ番号を入力してください');
+                return;
+            }
+            const normalized = toHalfWidth(input);
+            if (!/^\d+$/.test(normalized)) {
+                alert('トリアージ番号は半角数字のみで入力してください');
+                return;
+            }
+            patientId = normalized.padStart(3, '0');
+            const stored = localStorage.getItem(`patient:${patientId}`);
+            if (stored) {
+                const existing = JSON.parse(stored);
+                if (!confirm(`トリアージ番号 ${patientId} は既に登録されています。\n氏名: ${existing.name}\n上書きして編集しますか？`)) {
+                    patientId = '';
+                    return;
+                }
+            }
+            currentView = 'input';
+            render();
+        }
+
+        function cancelStaffInput() {
+            staffId = '';
+            currentView = 'select';
+            render();
+        }
+
+        function cancelPatientInput() {
+            patientId = '';
+            currentView = 'select';
+            render();
+        }
+
+        function saveStaff() {
+            const name = document.getElementById('staffName').value.trim();
+            const department = document.getElementById('staffDept').value;
+            const status = document.getElementById('staffStatus').value;
+            const location = document.getElementById('staffLocation').value.trim();
+            const canReport = document.getElementById('staffCanReport').value;
+            const reportTime = document.getElementById('staffReportTime').value.trim();
+            const comment = document.getElementById('staffComment').value.trim();
+
+            if (!name || !department || !status) {
+                alert('氏名、所属部署、安否状況は必須です');
+                return;
+            }
+
+            const now = new Date().toLocaleString('ja-JP');
+            const stored = localStorage.getItem(`staff:${staffId}`);
+            const existing = stored ? JSON.parse(stored) : {};
+            
+            const data = {
+                id: staffId,
+                name,
+                department,
+                status,
+                location,
+                canReport,
+                reportTime,
+                comment,
+                timestamp: now,
+                createdAt: existing.createdAt || now
+            };
+
+            localStorage.setItem(`staff:${staffId}`, JSON.stringify(data));
+            alert('登録しました');
+            staffId = '';
+            currentView = 'select';
+            render();
+        }
+
+        function savePatient() {
+            const name = document.getElementById('patientName').value.trim();
+            const patId = document.getElementById('patientIdField').value.trim();
+            const gender = document.getElementById('patientGender').value;
+            const age = document.getElementById('patientAge').value.trim();
+            const area = document.getElementById('patientArea').value;
+            const injury = document.getElementById('patientInjury').value.trim();
+            const treatment = document.getElementById('patientTreatment').value.trim();
+
+            if (!name || !area) {
+                alert('氏名とエリアは必須です');
+                return;
+            }
+
+            const now = new Date().toLocaleString('ja-JP');
+            const stored = localStorage.getItem(`patient:${patientId}`);
+            const existing = stored ? JSON.parse(stored) : {};
+
+            const data = {
+                triageNumber: patientId,
+                name,
+                patientId: patId,
+                gender,
+                age,
+                area,
+                injury,
+                treatment,
+                timestamp: now,
+                createdAt: existing.createdAt || now
+            };
+
+            localStorage.setItem(`patient:${patientId}`, JSON.stringify(data));
+            alert('登録しました');
+            patientId = '';
+            currentView = 'select';
+            render();
+        }
+
+        // 初期表示
+        window.onload = () => {
+            render();
+        };
+    </script>
+</body>
+</html>">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">職員モード（状況入力）</label>
                                     <input type="text" id="staffIdInput" placeholder="職員ID（半角数字のみ 例: 0001）" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-3" onkeypress="if(event.key==='Enter') staffInput()">
                                     <button onclick="staffInput()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">状況を入力する</button>
