@@ -365,6 +365,8 @@
             if (state.sortBy === 'time') filtered.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
             else if (state.sortBy === 'name') filtered.sort((a,b) => a.name.localeCompare(b.name, 'ja'));
             
+            const areaColorClass = state.selectedArea==='赤'?'text-red-600':state.selectedArea==='黄'?'text-yellow-600':state.selectedArea==='緑'?'text-green-600':'text-gray-900';
+            
             const rows = filtered.length === 0 ? `<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">${state.searchText?'検索結果がありません':state.selectedArea==='all'?'登録されているデータがありません':`${state.selectedArea}エリアのデータがありません`}</td></tr>` : 
                 filtered.map(p => `<tr class="hover:bg-gray-50">
                     <td class="px-4 py-3 text-sm font-medium text-gray-900">${p.triageNumber}</td>
@@ -377,6 +379,11 @@
                     <td class="px-4 py-3 text-sm text-gray-700 max-w-xs truncate">${p.treatment||'-'}</td>
                     <td class="px-4 py-3 text-sm text-gray-600"><div>${p.timestamp}</div><div class="text-xs text-gray-500">${getRelativeTime(p.timestamp)}</div></td>
                 </tr>`).join('');
+            
+            const filterInfo = state.selectedArea!=='all' ? `<div class="mb-4 p-3 bg-gray-100 rounded-lg">
+                            <span class="text-sm font-medium text-gray-700">表示中: <span class="font-bold ${areaColorClass}">${state.selectedArea}エリア</span> (${filtered.length}件)</span>
+                            <button onclick="state.selectedArea='all';render()" class="ml-4 text-sm text-blue-600 hover:text-blue-800 underline">全て表示</button>
+                        </div>` : '';
 
             return `<div class="min-h-screen bg-gradient-to-br from-rose-50 to-red-100 p-4">
                 <div class="max-w-6xl mx-auto pt-4">
@@ -408,10 +415,7 @@
                                 <option value="name" ${state.sortBy==='name'?'selected':''}>氏名順</option>
                             </select>
                         </div>
-                        ${state.selectedArea!=='all'?`<div class="mb-4 p-3 bg-gray-100 rounded-lg">
-                            <span class="text-sm font-medium text-gray-700">表示中: <span class="font-bold ${state.selectedArea==='赤'?'text-red-600':state.selectedArea==='黄'?'text-yellow-600':state.selectedArea==='緑'?'text-green-600':'text-gray-900'}">${state.selectedArea}エリア</span> (${filtered.length}件)</span>
-                            <button onclick="state.selectedArea='all';render()" class="ml-4 text-sm text-blue-600 hover:text-blue-800 underline">全て表示</button>
-                        </div>`:''}
+                        ${filterInfo}
                         <div class="mb-2 text-sm text-gray-600">表示: ${filtered.length}件 / 全${all.length}件</div>
                         <div class="overflow-x-auto">
                             <table class="w-full"><thead class="bg-gray-100 border-b-2 border-gray-300"><tr>
