@@ -1,18 +1,944 @@
-<!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#2563eb" />
-    <meta name="description" content="災害時トリアージ管理システム" />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <title>災害時トリアージ管理システム</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-  </head>
-  <body>
-    <noscript>JavaScriptを有効にしてください。</noscript>
-    <div id="root"></div>
-  </body>
-</html>
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, query, onSnapshot, serverTimestamp, getDoc } from 'firebase/firestore';
+import { Edit3, Eye, Download, Users, XCircle, Clock, Save, Camera, CheckCircle, Search, AlertTriangle } from 'lucide-react';
+
+// --- Firebase Initialization and Globals ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-disaster-app';
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+const API_KEY = ""; // Gemini API用のプレースホルダー
+
+// ヘルパー関数: 指数バックオフを使用した非同期呼び出し
+const withRetry = async (fn, retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (i < retries - 1) {
+                const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                throw error;
+            }
+        }
+    }
+};
+
+// --- グローバル定数 ---
+const AREA_CATEGORIES = [
+    { id: '赤', name: '赤 (Red)', color: 'bg-red-600', text: 'text-white' },
+    { id: '黄', name: '黄 (Yellow)', color: 'bg-yellow-400', text: 'text-gray-900' },
+    { id: '緑', name: '緑 (Green)', color: 'bg-green-600', text: 'text-white' },
+    { id: '黒', name: '黒 (Black)', color: 'bg-gray-800', text: 'text-white' },
+];
+
+const GENDERS = ['男性', '女性', 'その他', '不明'];
+
+// --- ユーティリティ関数 ---
+
+/**
+ * 8桁のゼロ埋め患者IDを生成（正規化）
+ * 例: "123" -> "00000123"
+ * @param {string|number} patientId
+ */
+const formatPatientId = (patientId) => {
+    const idString = String(patientId).replace(/[^0-9]/g, ''); // 数字以外を削除
+    // 8桁になるようにゼロ埋め
+    return idString.padStart(8, '0');
+};
+
+/**
+ * タイムスタンプを相対時間で表示
+ * @param {object} timestamp - Firestore Timestamp object
+ */
+const formatRelativeTime = (timestamp) => {
+    if (!timestamp || !timestamp.toDate) return '不明';
+    const now = new Date();
+    const then = timestamp.toDate();
+    const seconds = Math.floor((now - then) / 1000);
+
+    if (seconds < 60) return `${seconds}秒前に更新`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}分前に更新`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}時間前に更新`;
+    const days = Math.floor(hours / 24);
+    return `${days}日前に更新`;
+};
+
+/**
+ * データをCSV形式に変換してダウンロード
+ * @param {Array<Object>} data - 傷病者リスト
+ */
+const exportToCsv = (data) => {
+    if (data.length === 0) {
+        // alert()の代わりにカスタムモーダルまたはメッセージを使用
+        console.warn("エクスポートするデータがありません。");
+        return;
+    }
+
+    const headers = [
+        "患者ID", "トリアージ番号", "エリア区分", "氏名", "性別", "年齢",
+        "傷病名", "処置状況", "転帰", "登録日時", "最終更新日時",
+    ];
+    const headerRow = headers.join(',');
+    
+    const rows = data.map(item => {
+        const registeredAt = item.registeredAt?.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) || '';
+        const lastUpdated = item.lastUpdated?.toDate().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) || '';
+
+        // CSVフィールド内のダブルクォートをエスケープ (2つのダブルクォートに変換)
+        const escapeCsv = (text) => `"${(text || '').replace(/"/g, '""')}"`;
+
+        const row = [
+            escapeCsv(formatPatientId(item.id)), // IDをゼロ埋めしてエクスポート
+            escapeCsv(item.triageNumber),
+            escapeCsv(item.areaDivision),
+            escapeCsv(item.name),
+            escapeCsv(item.gender),
+            escapeCsv(item.age),
+            escapeCsv(item.injuryName),
+            escapeCsv(item.treatmentStatus),
+            escapeCsv(item.outcome),
+            escapeCsv(registeredAt),
+            escapeCsv(lastUpdated),
+        ].join(',');
+        return row;
+    });
+
+    // \ufeff はBOM (UTF-8) で、Excel等での文字化けを防ぐ
+    const csvContent = "\ufeff" + headerRow + '\n' + rows.join('\n'); 
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `CasualtyList_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+};
+
+/**
+ * Gemini API (Mock Implementation) - 傷病名や処置の誤字を修正
+ */
+const fetchAiCorrection = async (text, fieldName) => {
+    if (!text) return text;
+
+    const systemPrompt = "あなたは災害医療の専門家であり、入力された傷病名や処置状況のテキストに対して、誤字脱字を修正し、医療現場で通用する正確で簡潔な表現にリライトする役割を担います。回答は修正後のテキストのみにしてください。";
+    const userQuery = `${fieldName} の入力内容: "${text}" を修正してください。`;
+    
+    // APIキーがないため、ここではモックの遅延と動作をシミュレート
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // 修正のシミュレーションロジック
+    if (text.includes("こっせつ")) {
+        return text.replace("こっせつ", "骨折");
+    }
+    if (text.includes("ほうち")) {
+        return text.replace("ほうち", "縫合処置");
+    }
+    if (text.length > 50) {
+        return text.substring(0, 50) + "... (AIが簡略化)";
+    }
+
+    return text.trim();
+    /*
+    // 実際のAPI呼び出しロジック (APIキーが必要)
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+    const payload = {
+        contents: [{ parts: [{ text: userQuery }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+    };
+    try {
+        const response = await withRetry(async () => {
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+            return res.json();
+        });
+        const correctedText = response.candidates?.[0]?.content?.parts?.[0]?.text || text;
+        return correctedText.trim();
+    } catch (error) {
+        console.error("AI correction failed, returning original text:", error);
+        return text;
+    }
+    */
+};
+
+
+// --- Components ---
+
+/**
+ * 傷病者詳細入力フォーム
+ */
+const CasualtyDetailForm = ({ db, casualty, setCasualty, onSave, onBack, userId }) => {
+    const [isSaving, setIsSaving] = useState(false);
+    const [errors, setErrors] = useState({});
+    const [message, setMessage] = useState('');
+
+    const validate = useCallback(() => {
+        const newErrors = {};
+        // トリアージ番号 (自由記載だが必須)
+        if (!casualty.triageNumber || casualty.triageNumber.trim() === '') newErrors.triageNumber = 'トリアージ番号は必須です。';
+        // エリア区分 (プルダウンで必須)
+        if (!casualty.areaDivision) newErrors.areaDivision = 'エリア区分は必須です。';
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    }, [casualty.triageNumber, casualty.areaDivision]);
+
+    // Real-time validation check for required fields
+    const handleChange = useCallback((e) => {
+        const { name, value } = e.target;
+        setCasualty(prev => ({ ...prev, [name]: value }));
+
+        // リアルタイムバリデーション
+        if (name === 'triageNumber' || name === 'areaDivision') {
+            setErrors(prev => ({ ...prev, [name]: value.trim() ? '' : `${name === 'triageNumber' ? 'トリアージ番号' : 'エリア区分'}は必須です。` }));
+        }
+    }, [setCasualty]);
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (!validate()) {
+            setMessage('必須項目を入力してください。');
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            // Patient IDは既にゼロ埋めされていることを前提とする (ドキュメントIDとして使用)
+            const casualtyRef = doc(db, 'artifacts', appId, 'public', 'data', 'casualties', casualty.id);
+            const docSnap = await getDoc(casualtyRef);
+
+            const dataToSave = {
+                ...casualty,
+                // 空白文字をトリム
+                triageNumber: casualty.triageNumber.trim(),
+                lastUpdated: serverTimestamp(),
+            };
+
+            if (!docSnap.exists()) {
+                dataToSave.registeredAt = serverTimestamp();
+            }
+
+            // Firestore security rule path: /artifacts/{appId}/public/data/casualties/{casualtyId}
+            await setDoc(casualtyRef, dataToSave, { merge: true });
+            
+            setMessage('データを保存しました。');
+            setTimeout(() => setMessage(''), 3000);
+            
+            onSave(casualty.id); // ID入力に戻る
+        } catch (error) {
+            console.error("Error saving document: ", error);
+            setMessage('保存中にエラーが発生しました。');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // AI Correction feature
+    const handleAiCorrection = async (fieldName) => {
+        const originalText = casualty[fieldName] || '';
+        if (!originalText.trim()) {
+            setMessage('修正するテキストがありません。');
+            setTimeout(() => setMessage(''), 3000);
+            return;
+        }
+
+        setMessage('AIによる修正中です...');
+        const correctedText = await fetchAiCorrection(originalText, fieldName);
+
+        if (correctedText !== originalText) {
+            setCasualty(prev => ({ ...prev, [fieldName]: correctedText }));
+            setMessage(`${fieldName}をAIで修正しました。`);
+        } else {
+            setMessage('修正の必要はありませんでした。');
+        }
+        setTimeout(() => setMessage(''), 3000);
+    };
+
+    // Placeholder for Triage Tag Reading (Simulated)
+    const handleTagPhotoRead = (e) => {
+        // --- トリアージタグ読み取りのシミュレーション ---
+        setMessage('トリアージタグを読み取り中...');
+        
+        // デモ用モックデータ
+        const mockData = {
+            triageNumber: 'TCH-045', // 自由記載の例
+            areaDivision: '黄',
+            name: '山田 太郎',
+            age: '45',
+            injuryName: '左大たい骨こっせつ、いしきせいめい', // 誤字を含むデータ
+            treatmentStatus: '止血処置済み、ほううちせず',
+        };
+
+        setCasualty(prev => ({ ...prev, ...mockData }));
+        setMessage('トリアージタグからデータを抽出しました。自動整形ボタンを押して修正・確定してください。');
+        // ファイル入力の値をクリア
+        e.target.value = null;
+    };
+    
+    const handleAutoCorrect = async () => {
+        // --- 抽出データの自動整形・修正ステップ ---
+        setMessage('抽出データの自動整形を実行中...');
+
+        // 傷病名と処置状況をAI修正にかける
+        const correctedInjury = await fetchAiCorrection(casualty.injuryName, '傷病名');
+        const correctedTreatment = await fetchAiCorrection(casualty.treatmentStatus, '処置状況');
+
+        setCasualty(prev => ({ 
+            ...prev, 
+            injuryName: correctedInjury, 
+            treatmentStatus: correctedTreatment 
+        }));
+
+        setMessage('抽出データの自動整形・AI修正が完了しました。データを確認してください。');
+        setTimeout(() => setMessage(''), 3000);
+    };
+
+    const inputClass = (name) => `w-full p-3 border rounded-lg focus:ring-2 transition duration-150 ${errors[name] ? 'border-red-500 ring-red-200' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-100'}`;
+    const labelClass = "block text-sm font-medium text-gray-700 mt-4";
+
+    return (
+        <form onSubmit={handleSave} className="bg-white p-6 rounded-xl shadow-2xl space-y-4 max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold text-gray-800 border-b pb-2 mb-4 flex items-center">
+                <Edit3 className="w-5 h-5 mr-2 text-blue-600" />
+                患者ID: <span className="ml-2 text-blue-600">{casualty.id}</span> の詳細入力
+            </h2>
+
+            {message && (
+                <div className={`p-3 rounded-lg text-sm font-medium ${message.includes('エラー') || message.includes('失敗') ? 'bg-red-100 text-red-700 flex items-center' : 'bg-green-100 text-green-700 flex items-center'}`}>
+                    {message.includes('エラー') || message.includes('失敗') ? <AlertTriangle className="w-4 h-4 mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                    {message}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. トリアージ番号 (自由記載, 必須) */}
+                <div>
+                    <label className={labelClass + ' text-red-600'}>トリアージ番号 (必須, 例: TCH-000)</label>
+                    <input
+                        type="text"
+                        name="triageNumber"
+                        value={casualty.triageNumber || ''}
+                        onChange={handleChange}
+                        className={inputClass('triageNumber')}
+                        placeholder="例: TCH-001, 赤-123"
+                    />
+                    {errors.triageNumber && <p className="text-red-500 text-xs mt-1">{errors.triageNumber}</p>}
+                </div>
+
+                {/* 2. エリア区分 (必須) */}
+                <div>
+                    <label className={labelClass + ' text-red-600'}>エリア区分 (必須)</label>
+                    <select
+                        name="areaDivision"
+                        value={casualty.areaDivision || ''}
+                        onChange={handleChange}
+                        className={inputClass('areaDivision')}
+                    >
+                        <option value="" disabled>選択してください</option>
+                        {AREA_CATEGORIES.map(c => (
+                            <option key={c.id} value={c.id} className={`${c.color} ${c.text}`}>{c.name}</option>
+                        ))}
+                    </select>
+                    {errors.areaDivision && <p className="text-red-500 text-xs mt-1">{errors.areaDivision}</p>}
+                </div>
+            </div>
+
+            {/* トリアージタグ読み取り機能 */}
+            <div className="pt-4 border-t border-gray-200">
+                <label className={labelClass}>トリアージタグ画像読み取り（自動入力）</label>
+                <div className="flex space-x-2">
+                    <label className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md cursor-pointer transition duration-150 flex-grow">
+                        <Camera className="w-5 h-5 mr-2" />
+                        写真撮影でタグを読み取る
+                        <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={handleTagPhotoRead}
+                            className="hidden"
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onClick={handleAutoCorrect}
+                        className="flex items-center justify-center bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150"
+                        disabled={isSaving}
+                    >
+                        <CheckCircle className="w-5 h-5 mr-2" />
+                        自動整形・修正
+                    </button>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 氏名 */}
+                <div>
+                    <label className={labelClass}>氏名</label>
+                    <input
+                        type="text"
+                        name="name"
+                        value={casualty.name || ''}
+                        onChange={handleChange}
+                        className={inputClass('name')}
+                        placeholder="氏名を入力"
+                    />
+                </div>
+
+                {/* 性別 */}
+                <div>
+                    <label className={labelClass}>性別</label>
+                    <select
+                        name="gender"
+                        value={casualty.gender || ''}
+                        onChange={handleChange}
+                        className={inputClass('gender')}
+                    >
+                        <option value="">選択しない</option>
+                        {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                </div>
+
+                {/* 年齢 (自由記載) */}
+                <div>
+                    <label className={labelClass}>年齢 (自由記載/不明可)</label>
+                    <input
+                        type="text"
+                        name="age"
+                        value={casualty.age || ''}
+                        onChange={handleChange}
+                        className={inputClass('age')}
+                        placeholder="例: 45, 8ヶ月, 不明"
+                    />
+                </div>
+            </div>
+
+            {/* 傷病名 + AI修正 */}
+            <div>
+                <label className={labelClass}>傷病名</label>
+                <div className="flex space-x-2">
+                    <textarea
+                        name="injuryName"
+                        value={casualty.injuryName || ''}
+                        onChange={handleChange}
+                        rows="2"
+                        className={inputClass('injuryName') + ' flex-grow'}
+                        placeholder="例: 左大腿骨骨折、頭部外傷"
+                    ></textarea>
+                    <button
+                        type="button"
+                        onClick={() => handleAiCorrection('injuryName')}
+                        className="flex-shrink-0 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold p-2 rounded-lg shadow-md transition duration-150 self-end"
+                        disabled={isSaving}
+                        title="AIで傷病名の誤字を修正"
+                    >
+                        AI修正
+                    </button>
+                </div>
+            </div>
+
+            {/* 処置状況 + AI修正 */}
+            <div>
+                <label className={labelClass}>処置状況</label>
+                <div className="flex space-x-2">
+                    <textarea
+                        name="treatmentStatus"
+                        value={casualty.treatmentStatus || ''}
+                        onChange={handleChange}
+                        rows="2"
+                        className={inputClass('treatmentStatus') + ' flex-grow'}
+                        placeholder="例: 頚椎カラー固定、輸液開始、気道確保"
+                    ></textarea>
+                    <button
+                        type="button"
+                        onClick={() => handleAiCorrection('treatmentStatus')}
+                        className="flex-shrink-0 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold p-2 rounded-lg shadow-md transition duration-150 self-end"
+                        disabled={isSaving}
+                        title="AIで処置状況の誤字を修正"
+                    >
+                        AI修正
+                    </button>
+                </div>
+            </div>
+            
+            {/* 転帰 (自由記載) */}
+            <div>
+                <label className={labelClass}>転帰 (自由記載)</label>
+                <textarea
+                    name="outcome"
+                    value={casualty.outcome || ''}
+                    onChange={handleChange}
+                    rows="2"
+                    className={inputClass('outcome')}
+                    placeholder="例: 入院、帰宅、転送"
+                ></textarea>
+            </div>
+
+            <div className="flex justify-between pt-6 border-t mt-6">
+                <button
+                    type="button"
+                    onClick={onBack}
+                    className="flex items-center bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-150"
+                    disabled={isSaving}
+                >
+                    <XCircle className="w-5 h-5 mr-2" />
+                    ID入力に戻る
+                </button>
+                <button
+                    type="submit"
+                    className="flex items-center bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition duration-150 disabled:bg-blue-400"
+                    disabled={isSaving}
+                >
+                    <Save className="w-5 h-5 mr-2" />
+                    {isSaving ? '保存中...' : 'データを保存・更新'}
+                </button>
+            </div>
+        </form>
+    );
+};
+
+
+/**
+ * 傷病者ID入力画面
+ */
+const PatientIdEntry = ({ onIdSubmit }) => {
+    // ユーザーが入力したそのままの値を保持
+    const [patientIdInput, setPatientIdInput] = useState(''); 
+    const [error, setError] = useState('');
+
+    const handleInput = (e) => {
+        // 数字以外を削除
+        const value = e.target.value.replace(/[^0-9]/g, '');
+        setPatientIdInput(value);
+        
+        // リアルタイムバリデーション（最大8桁）
+        if (value.length > 8) {
+             setError('患者IDは最大8桁の数字で入力してください。');
+        } else if (value.length === 0) {
+            setError('患者IDを入力してください。');
+        } else {
+            setError('');
+        }
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const rawId = patientIdInput.trim();
+
+        if (rawId.length === 0) {
+            setError('患者IDを入力してください。');
+            return;
+        }
+        if (rawId.length > 8) {
+            setError('患者IDは最大8桁の数字で入力してください。');
+            return;
+        }
+
+        // 入力されたIDを必ず8桁ゼロ埋め形式に正規化して送信
+        const formattedId = formatPatientId(rawId);
+        onIdSubmit(formattedId);
+    };
+
+    const inputClassName = `w-full p-4 text-3xl text-center tracking-widest border rounded-lg focus:ring-4 focus:ring-blue-100 transition duration-150 ${error ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'}`;
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-2xl max-w-lg mx-auto">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">
+                現場入力モード
+            </h2>
+            <p className="text-gray-600 mb-6">
+                患者ID (最大8桁の数字) を入力してください。<br/>
+                <span className="text-xs text-gray-500">(例: 123 と 00000123 は同じIDとして扱われます)</span>
+            </p>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label htmlFor="patientId" className="block text-sm font-medium text-gray-700 mb-2">
+                        患者ID (8桁)
+                    </label>
+                    <input
+                        id="patientId"
+                        type="tel" // モバイルでの数字入力を容易にする
+                        value={patientIdInput}
+                        onChange={handleInput}
+                        placeholder="例: 123 または 00000123"
+                        className={inputClassName}
+                        maxLength="8" // HTML側の最大桁数制限
+                    />
+                    {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+                </div>
+                <button
+                    type="submit"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition duration-150 disabled:bg-blue-400"
+                    disabled={error.length > 0 || patientIdInput.length === 0}
+                >
+                    詳細入力へ進む
+                </button>
+            </form>
+        </div>
+    );
+};
+
+
+/**
+ * 本部モード：傷病者リスト一覧
+ */
+const HeadquartersView = ({ casualties, db, userId, onSwitchMode }) => {
+    const [filter, setFilter] = useState('全て');
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredCasualties = useMemo(() => {
+        let list = casualties;
+        
+        // 1. エリアフィルタ
+        if (filter !== '全て') {
+            list = list.filter(c => c.areaDivision === filter);
+        }
+
+        // 2. 検索フィルタ (ID, 氏名, 傷病名, 処置, トリアージ番号)
+        if (searchTerm) {
+            const lowerCaseSearch = formatPatientId(searchTerm).toLowerCase(); // 検索語もゼロ埋め正規化
+            const lowerCaseTriageSearch = searchTerm.toLowerCase();
+
+            list = list.filter(c => 
+                // IDはFirestoreに保存されているゼロ埋めIDと検索語(ゼロ埋め済み)を比較
+                c.id.includes(lowerCaseSearch) ||
+                // トリアージ番号、氏名、傷病名、処置はそのままの文字列で検索
+                c.triageNumber?.toLowerCase().includes(lowerCaseTriageSearch) ||
+                c.name?.toLowerCase().includes(lowerCaseTriageSearch) ||
+                c.injuryName?.toLowerCase().includes(lowerCaseTriageSearch) ||
+                c.treatmentStatus?.toLowerCase().includes(lowerCaseTriageSearch)
+            );
+        }
+        
+        // 3. ソート (最終更新日時で降順)
+        return list.sort((a, b) => {
+            const timeA = a.lastUpdated?.toDate().getTime() || 0;
+            const timeB = b.lastUpdated?.toDate().getTime() || 0;
+            return timeB - timeA;
+        });
+    }, [casualties, filter, searchTerm]);
+
+    const AreaTag = ({ categoryId }) => {
+        const category = AREA_CATEGORIES.find(c => c.id === categoryId);
+        if (!category) return <span className="text-gray-500 text-sm">不明</span>;
+        return (
+            <span className={`px-2 py-1 text-xs font-bold rounded-full ${category.color} ${category.text}`}>
+                {category.id}
+            </span>
+        );
+    };
+
+    return (
+        <div className="bg-white p-4 md:p-8 rounded-xl shadow-2xl w-full">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6 flex items-center justify-between border-b pb-3">
+                <span className="flex items-center"><Users className="w-6 h-6 mr-3 text-red-600" />本部 状況把握リスト</span>
+                <button 
+                    onClick={onSwitchMode}
+                    className="flex items-center bg-gray-200 text-gray-700 hover:bg-gray-300 px-4 py-2 rounded-lg text-sm font-semibold transition duration-150"
+                >
+                    <Edit3 className="w-4 h-4 mr-2" />
+                    現場入力モードへ
+                </button>
+            </h2>
+
+            <div className="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4 mb-6">
+                {/* フィルタボタン */}
+                <div className="flex space-x-2 overflow-x-auto p-1 bg-gray-50 rounded-lg shadow-inner flex-shrink-0">
+                    {['全て', ...AREA_CATEGORIES.map(c => c.id)].map(t => (
+                        <button
+                            key={t}
+                            onClick={() => setFilter(t)}
+                            className={`px-4 py-2 rounded-lg font-semibold text-sm transition duration-150 whitespace-nowrap ${
+                                filter === t
+                                    ? (t === '全て' ? 'bg-blue-600 text-white shadow-lg' : AREA_CATEGORIES.find(c => c.id === t)?.color + ' text-white shadow-lg')
+                                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                            }`}
+                        >
+                            {t}
+                        </button>
+                    ))}
+                </div>
+
+                {/* 検索とエクスポート */}
+                <div className="flex flex-grow space-x-2">
+                    <div className="relative flex-grow">
+                        <input
+                            type="text"
+                            placeholder="ID(0埋め), トリアージ番号, 氏名などで検索..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        />
+                        <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    </div>
+                    
+                    <button
+                        onClick={() => exportToCsv(casualties)}
+                        className="flex items-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 flex-shrink-0"
+                    >
+                        <Download className="w-5 h-5 mr-2" />
+                        CSVエクスポート
+                    </button>
+                </div>
+            </div>
+
+            {/* 傷病者リストのテーブル */}
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">トリアージ番号</th>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">エリア</th>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">氏名/年齢</th>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">傷病名/処置</th>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">転帰</th>
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最終更新</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-100">
+                        {filteredCasualties.length > 0 ? (
+                            filteredCasualties.map(c => (
+                                <tr key={c.id} className="hover:bg-yellow-50">
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{c.id}</td> {/* IDはFirestoreに保存されているゼロ埋めID */}
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">{c.triageNumber || '---'}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap">
+                                        <AreaTag categoryId={c.areaDivision} />
+                                    </td>
+                                    <td className="px-3 py-3 text-sm text-gray-700">
+                                        <div className="font-semibold">{c.name || '---'}</div>
+                                        <div className="text-xs text-gray-500">{c.gender || '不明'}, {c.age || '年齢不明'}</div>
+                                    </td>
+                                    <td className="px-3 py-3 text-sm text-gray-700 max-w-xs truncate">
+                                        <div className="font-medium text-gray-800">{c.injuryName || '傷病名未入力'}</div>
+                                        <div className="text-xs text-blue-600 truncate">{c.treatmentStatus || '処置未入力'}</div>
+                                    </td>
+                                    <td className="px-3 py-3 text-sm text-gray-700 max-w-xs truncate">
+                                        {c.outcome || '---'}
+                                    </td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500">
+                                        <div className="flex items-center text-xs">
+                                            <Clock className="w-3 h-3 mr-1" />
+                                            {formatRelativeTime(c.lastUpdated)}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
+                                    該当する傷病者は見つかりませんでした。
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            <div className="mt-4 text-sm text-gray-600">
+                表示件数: {filteredCasualties.length} / 全件: {casualties.length}
+            </div>
+        </div>
+    );
+};
+
+
+/**
+ * メインアプリケーションコンポーネント
+ */
+const App = () => {
+    const [mode, setMode] = useState('entry'); // 'entry' or 'hq'
+    const [db, setDb] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [currentPatientId, setCurrentPatientId] = useState(null);
+    const [currentCasualtyData, setCurrentCasualtyData] = useState(null);
+    const [casualties, setCasualties] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // 1. Firebase初期化と認証
+    useEffect(() => {
+        try {
+            const app = initializeApp(firebaseConfig);
+            const firestore = getFirestore(app);
+            const auth = getAuth(app);
+            setDb(firestore);
+
+            const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    setUserId(user.uid);
+                    setIsAuthReady(true);
+                } else {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Authentication failed:", error);
+                        // Fallback to anonymous if custom token fails
+                        await signInAnonymously(auth);
+                    }
+                }
+            });
+            return () => unsubscribe();
+        } catch (error) {
+            console.error("Firebase initialization failed:", error);
+            setLoading(false);
+            setIsAuthReady(true);
+        }
+    }, []);
+
+    // 2. 傷病者リストのリアルタイム監視 (HQ Mode用)
+    useEffect(() => {
+        if (!db || !userId || !isAuthReady) return;
+
+        // 公開コレクションへのパス
+        const casualtiesColRef = collection(db, 'artifacts', appId, 'public', 'data', 'casualties');
+        const q = query(casualtiesColRef);
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const list = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+            }));
+            setCasualties(list);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching casualty data:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [db, userId, isAuthReady]);
+
+    // 3. 患者IDが入力されたときの処理
+    const handleIdSubmit = useCallback(async (formattedId) => {
+        // formattedIdは既に8桁のゼロ埋め文字列 (例: "00000123")
+        setCurrentPatientId(formattedId);
+
+        if (db) {
+            // FirestoreのドキュメントIDとしてゼロ埋めIDを使用
+            const casualtyRef = doc(db, 'artifacts', appId, 'public', 'data', 'casualties', formattedId);
+            const docSnap = await getDoc(casualtyRef);
+
+            if (docSnap.exists()) {
+                // 既存データをロード
+                setCurrentCasualtyData(docSnap.data());
+            } else {
+                // 新規データを作成 (初期値設定)
+                setCurrentCasualtyData({
+                    // IDはドキュメントIDと同じく、ゼロ埋めされたものをそのまま使用
+                    id: formattedId,
+                    triageNumber: '', // 自由記載
+                    areaDivision: '',
+                    name: '',
+                    gender: '',
+                    age: '',
+                    injuryName: '',
+                    treatmentStatus: '',
+                    outcome: '', // 転帰
+                });
+            }
+        }
+    }, [db]);
+
+    // 4. データ保存後の処理
+    const handleSaveComplete = (savedId) => {
+        // ID入力画面に戻る
+        setCurrentPatientId(null);
+        setCurrentCasualtyData(null);
+    };
+
+    // 5. モード切り替え
+    const switchMode = () => {
+        setMode(prev => prev === 'entry' ? 'hq' : 'entry');
+        setCurrentPatientId(null);
+        setCurrentCasualtyData(null);
+    };
+
+    if (loading || !isAuthReady) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                <div className="text-center p-6 bg-white rounded-lg shadow-xl">
+                    <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-3" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-gray-700">システム準備中...</p>
+                    <p className="text-xs text-gray-400 mt-2">ユーザーID: {userId}</p>
+                </div>
+            </div>
+        );
+    }
+    
+    return (
+        <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans">
+            <header className="text-center mb-8">
+                <h1 className="text-4xl font-extrabold text-gray-900 flex items-center justify-center">
+                    <img 
+                        src="https://placehold.co/40x40/ef4444/ffffff?text=D" 
+                        alt="Disaster Logo" 
+                        className="rounded-full mr-3 shadow-md"
+                        onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/40x40/ef4444/ffffff?text=D" }} 
+                    />
+                    災害医療 傷病者管理システム
+                </h1>
+                <p className="text-sm text-gray-500 mt-1">
+                    ユーザーID: <span className="font-mono bg-gray-200 p-1 rounded text-xs">{userId}</span>
+                </p>
+            </header>
+
+            <main>
+                {mode === 'entry' ? (
+                    currentPatientId && currentCasualtyData ? (
+                        <CasualtyDetailForm
+                            db={db}
+                            casualty={currentCasualtyData}
+                            setCasualty={setCurrentCasualtyData}
+                            onSave={handleSaveComplete}
+                            onBack={() => {
+                                setCurrentPatientId(null);
+                                setCurrentCasualtyData(null);
+                            }}
+                            userId={userId}
+                        />
+                    ) : (
+                        <div className="space-y-4">
+                            <PatientIdEntry onIdSubmit={handleIdSubmit} />
+                            <div className="text-center">
+                                <button
+                                    onClick={switchMode}
+                                    className="flex items-center mx-auto text-blue-600 hover:text-blue-700 font-semibold py-2 px-4 rounded-lg transition duration-150"
+                                >
+                                    <Eye className="w-5 h-5 mr-2" />
+                                    本部モード（リスト閲覧）に切り替える
+                                </button>
+                            </div>
+                        </div>
+                    )
+                ) : (
+                    <HeadquartersView
+                        casualties={casualties}
+                        db={db}
+                        userId={userId}
+                        onSwitchMode={switchMode}
+                    />
+                )}
+            </main>
+        </div>
+    );
+};
+
+export default App;
